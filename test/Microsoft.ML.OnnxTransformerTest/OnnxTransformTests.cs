@@ -25,8 +25,8 @@ namespace Microsoft.ML.Tests
     {
         // These two members are meant to be changed
         // Only when manually testing the Onnx GPU nuggets
-        private const bool _fallbackToCpu = true;
-        private static int? _gpuDeviceId = null;
+        private const bool _fallbackToCpu = false;
+        private static int? _gpuDeviceId = 1;
 
         private const int InputSize = 150528;
 
@@ -117,6 +117,8 @@ namespace Microsoft.ML.Tests
 
         public OnnxTransformTests(ITestOutputHelper output) : base(output)
         {
+            // ML.GpuDeviceId = _gpuDeviceId;
+            // ML.FallbackToCpu = _fallbackToCpu;
         }
 
         [OnnxTheory]

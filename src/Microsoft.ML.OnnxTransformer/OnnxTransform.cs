@@ -207,6 +207,8 @@ namespace Microsoft.ML.Transforms.Onnx
                 recursionLimit = 100;
             }
 
+            IHostEnvironmentInternal localEnvironment = env as IHostEnvironmentInternal;
+
             var options = new Options()
             {
                 InputColumns = inputs,
@@ -214,6 +216,12 @@ namespace Microsoft.ML.Transforms.Onnx
                 CustomShapeInfos = loadedCustomShapeInfos,
                 RecursionLimit = recursionLimit
             };
+
+            if (localEnvironment is not null)
+            {
+                options.GpuDeviceId = localEnvironment.GpuDeviceId;
+                options.FallbackToCpu = localEnvironment.FallbackToCpu;
+            }
 
             return new OnnxTransformer(env, options, modelBytes);
         }

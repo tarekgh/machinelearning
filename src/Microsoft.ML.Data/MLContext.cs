@@ -89,6 +89,24 @@ namespace Microsoft.ML
         }
 
         /// <summary>
+        /// Optional GPU device ID to run model loading on, <see langword="null" /> to run on CPU
+        /// </summary>
+        public int? GpuDeviceId
+        {
+            get => _env.GpuDeviceId;
+            set { _env.GpuDeviceId = value; }
+        }
+
+        /// <summary>
+        /// Allow falling back to CPU if GPU error or raise exception.
+        /// </summary>
+        public bool FallbackToCpu
+        {
+            get => _env.FallbackToCpu;
+            set { _env.FallbackToCpu = value; }
+        }
+
+        /// <summary>
         /// Create the ML context.
         /// </summary>
         /// <param name="seed">Seed for MLContext's random number generator. See the remarks for more details.</param>

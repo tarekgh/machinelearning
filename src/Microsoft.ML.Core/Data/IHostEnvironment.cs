@@ -94,6 +94,16 @@ namespace Microsoft.ML.Runtime
         /// The location for the temp files created by ML.NET
         /// </summary>
         string TempFilePath { get; set; }
+
+        /// <summary>
+        /// Optional GPU device ID to run execution on, <see langword="null" /> to run on CPU
+        /// </summary>
+        int? GpuDeviceId { get; set; }
+
+        /// <summary>
+        /// Allow falling back to CPU if GPU error or raise exception.
+        /// </summary>
+        bool FallbackToCpu { get; set; }
     }
 
     /// <summary>
