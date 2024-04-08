@@ -73,7 +73,7 @@ namespace Microsoft.ML.Tokenizers
 
             foreach (Split split in encoding.Splits)
             {
-                IReadOnlyList<Token> tokens = Model.Encode(split.TokenString.AsSpan());
+                IReadOnlyList<Token> tokens = Model.Encode(split.TokenSpan);
                 foreach (Token token in tokens)
                 {
                     token.Offset = (token.Offset.Index + split.Offset.Index, token.Offset.Length);

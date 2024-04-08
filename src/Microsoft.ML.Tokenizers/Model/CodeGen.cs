@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
@@ -13,11 +13,11 @@ using System.Text.Json;
 namespace Microsoft.ML.Tokenizers
 {
     /// <summary>
-    /// Represent the Byte Pair Encoding model.
+    /// Represent the CodeGen Encoding model. This class is used to encode the text to a list of tokens.
+    ///
     /// </summary>
-    public sealed class EnglishRoberta : Model
+    public sealed class CodeGen : Model
     {
-        private readonly HighestOccurrenceMapping _vocabIdToHighestOccurrence;
         private readonly Dictionary<StringSpanOrdinalKey, int> _vocab;
         private Dictionary<string, int>? _vocabOriginal;
         private readonly SortedDictionary<int, StringSpanOrdinalKey> _vocabReverse;
@@ -25,49 +25,14 @@ namespace Microsoft.ML.Tokenizers
         private readonly StringSpanOrdinalKeyCache<List<Token>> _cache;
 
         /// <summary>
-        /// Indicate if want to filter the unsupported characters during the decoding.
-        /// </summary>
-        public bool FilterUnsupportedChars { get; }
-
-        /// <summary>
         /// Construct tokenizer's model object to use with the English Robert model.
         /// </summary>
         /// <param name="vocabularyPath">The JSON file path containing the dictionary of string keys and their ids.</param>
         /// <param name="mergePath">The file path containing the tokens's pairs list.</param>
-        /// <param name="highestOccurrenceMappingPath">Remap the original GPT-2 model Ids to high occurrence ranks and values.</param>
-        /// <param name="filterUnsupportedChars">Indicate if want to filter the unsupported characters during the decoding.</param>
-        public EnglishRoberta(string vocabularyPath, string mergePath, string highestOccurrenceMappingPath, bool filterUnsupportedChars = true)
+        public CodeGen(string vocabularyPath, string mergePath) :
+            this(vocabularyPath is null ? throw new ArgumentNullException(nameof(vocabularyPath)) : File.OpenRead(vocabularyPath),
+                 mergePath is null ? throw new ArgumentNullException(nameof(mergePath)) : File.OpenRead(mergePath), true)
         {
-            if (vocabularyPath is null)
-            {
-                throw new ArgumentNullException(nameof(vocabularyPath));
-            }
-
-            if (mergePath is null)
-            {
-                throw new ArgumentNullException(nameof(mergePath));
-            }
-
-            if (highestOccurrenceMappingPath is null)
-            {
-                throw new ArgumentNullException(nameof(highestOccurrenceMappingPath));
-            }
-
-            FilterUnsupportedChars = filterUnsupportedChars;
-
-            using Stream vocabularyStream = File.OpenRead(vocabularyPath);
-            using Stream mergeStream = File.OpenRead(mergePath);
-            using Stream highestOccurrenceMappingStream = File.OpenRead(highestOccurrenceMappingPath);
-
-            // vocabularyPath like "https://dl.fbaipublicfiles.com/fairseq/gpt2_bpe/encoder.json"
-            // merge file like "https://dl.fbaipublicfiles.com/fairseq/gpt2_bpe/vocab.bpe"
-            // highestOccurrenceMappingPath like "https://dl.fbaipublicfiles.com/fairseq/gpt2_bpe/dict.txt"
-
-            _vocabIdToHighestOccurrence = GetHighestOccurrenceMapping(highestOccurrenceMappingStream);
-            _vocab = Helpers.GetVocabulary(vocabularyStream);
-            _vocabReverse = _vocab.ReverseSorted();
-            _mergeRanks = GetMergeRanks(mergeStream);
-            _cache = new StringSpanOrdinalKeyCache<List<Token>>();
         }
 
         /// <summary>
@@ -75,9 +40,12 @@ namespace Microsoft.ML.Tokenizers
         /// </summary>
         /// <param name="vocabularyStream">The stream of a JSON file containing the dictionary of string keys and their ids.</param>
         /// <param name="mergeStream">The stream of a file containing the tokens's pairs list.</param>
-        /// <param name="highestOccurrenceMappingStream">Remap the original GPT-2 model Ids to high occurrence ranks and values.</param>
-        /// <param name="filterUnsupportedChars">Indicate if want to filter the unsupported characters during the decoding.</param>
-        public EnglishRoberta(Stream vocabularyStream, Stream mergeStream, Stream highestOccurrenceMappingStream, bool filterUnsupportedChars = true)
+        public CodeGen(Stream vocabularyStream, Stream mergeStream) :
+            this(vocabularyStream, mergeStream, false)
+        {
+        }
+
+        private CodeGen(Stream vocabularyStream, Stream mergeStream, bool disposeStreams)
         {
             if (vocabularyStream is null)
             {
@@ -89,18 +57,16 @@ namespace Microsoft.ML.Tokenizers
                 throw new ArgumentNullException(nameof(mergeStream));
             }
 
-            if (highestOccurrenceMappingStream is null)
-            {
-                throw new ArgumentNullException(nameof(highestOccurrenceMappingStream));
-            }
-
-            FilterUnsupportedChars = filterUnsupportedChars;
-
-            _vocabIdToHighestOccurrence = GetHighestOccurrenceMapping(highestOccurrenceMappingStream);
             _vocab = Helpers.GetVocabulary(vocabularyStream);
             _vocabReverse = _vocab.ReverseSorted();
             _mergeRanks = GetMergeRanks(mergeStream);
             _cache = new StringSpanOrdinalKeyCache<List<Token>>();
+
+            if (disposeStreams)
+            {
+                vocabularyStream.Dispose();
+                mergeStream.Dispose();
+            }
         }
 
         /// <summary>
@@ -121,29 +87,7 @@ namespace Microsoft.ML.Tokenizers
         {
             if (_vocabReverse.TryGetValue(id, out var value))
             {
-                string v = value.Data!;
-                if (FilterUnsupportedChars)
-                {
-                    char[] buffer = ArrayPool<char>.Shared.Rent(v.Length);
-                    int i = 0;
-
-                    IReadOnlyDictionary<char, char> unicodeToByte = ByteToUnicodeEncoding.Instance.UnicodeToByte;
-                    for (int j = 0; j < v.Length; j++)
-                    {
-                        if (unicodeToByte.TryGetValue(v[j], out var c))
-                        {
-                            buffer[i++] = c;
-                        }
-                    }
-
-                    string result = new string(buffer, 0, i);
-                    ArrayPool<char>.Shared.Return(buffer);
-                    return result;
-                }
-                else
-                {
-                    return v;
-                }
+                return value.Data!;
             }
 
             return null;
@@ -397,89 +341,6 @@ namespace Microsoft.ML.Tokenizers
         /// <returns>The mapped Id of the token.</returns>
         public override int? MapTokenToId(ReadOnlySpan<char> token) => _vocab.TryGetValue(token, out int value) ? value : null;
 
-        /// <summary>
-        /// Convert a list of tokens Ids to highest occurrence rankings.
-        /// </summary>
-        /// <param name="ids">The Ids list to map to the high occurrence rank.</param>
-        /// <returns>The list of ranks mapped from the list of Ids.</returns>
-        public IReadOnlyList<int> ConvertIdsToOccurrenceRanks(IReadOnlyList<int> ids)
-        {
-            if (ids is null)
-            {
-                throw new ArgumentNullException(nameof(ids));
-            }
-
-            List<int> list = new List<int>(ids.Count);
-
-            foreach (int id in ids)
-            {
-                list.Add(id <= 0 ? -id : _vocabIdToHighestOccurrence.IdToOccurrenceRank(id));
-            }
-
-            return list;
-        }
-
-        /// <summary>
-        /// Convert a list of tokens Ids to highest occurrence values.
-        /// </summary>
-        /// <param name="ids">The Ids list to map to the high occurrence values.</param>
-        /// <returns>The list of occurrence values mapped from the list of Ids.</returns>
-        public IReadOnlyList<int> ConvertIdsToOccurrenceValues(IReadOnlyList<int> ids)
-        {
-            if (ids is null)
-            {
-                throw new ArgumentNullException(nameof(ids));
-            }
-
-            List<int> list = new List<int>(ids.Count);
-
-            foreach (int id in ids)
-            {
-                list.Add(id <= 0 ? 0 : _vocabIdToHighestOccurrence.IdToOccurrenceValue(id));
-            }
-
-            return list;
-        }
-
-        /// <summary>
-        /// Convert a list of highest occurrence rankings to tokens Ids list .
-        /// </summary>
-        /// <param name="ranks">The high occurrence ranks list to map to the Ids list.</param>
-        /// <returns>The list of Ids mapped from the list of ranks.</returns>
-        public IReadOnlyList<int> ConvertOccurrenceRanksToIds(IReadOnlyList<int> ranks)
-        {
-            if (ranks is null)
-            {
-                throw new ArgumentNullException(nameof(ranks));
-            }
-
-            List<int> list = new List<int>(ranks.Count);
-
-            foreach (int rank in ranks)
-            {
-                list.Add(_vocabIdToHighestOccurrence.ConvertOccurrenceRankToId(rank));
-            }
-
-            return list;
-        }
-
-        /// <summary>
-        /// Gets the index of the pad symbol inside the symbols list.
-        /// </summary>
-        public int PadIndex => _vocabIdToHighestOccurrence.PadIndex;
-
-        /// <summary>
-        /// Gets the symbols list length.
-        /// </summary>
-        public int SymbolsCount => _vocabIdToHighestOccurrence.Count;
-
-        /// <summary>
-        /// Add the mask symbol to the symbols list.
-        /// </summary>
-        /// <param name="mask">The mask symbol.</param>
-        /// <returns>The index of the mask symbol in the symbols list.</returns>
-        public int AddMaskSymbol(string mask = "<mask>") => _vocabIdToHighestOccurrence.AddMaskSymbol(mask);
-
         //
         // Private & Internal methods
         //
@@ -514,9 +375,6 @@ namespace Microsoft.ML.Tokenizers
 
             return tokens;
         }
-
-        private static HighestOccurrenceMapping GetHighestOccurrenceMapping(Stream highestOccurrenceMappingStream) =>
-            HighestOccurrenceMapping.Load(highestOccurrenceMappingStream);
 
         private Cache<(string, string), int> GetMergeRanks(Stream mergeStream)
         {
@@ -681,209 +539,6 @@ namespace Microsoft.ML.Tokenizers
             {
                 pairs.Add((prevElem, elem));
                 prevElem = elem;
-            }
-        }
-
-        /// <summary>
-        /// Check if the character is supported by the tokenizer's model.
-        /// </summary>
-        /// <param name="ch">The character to check.</param>
-        /// <returns>True if the character is supported, otherwise false.</returns>
-        public bool IsSupportedChar(char ch) => ByteToUnicodeEncoding.Instance.ByteToUnicode.ContainsKey(ch);
-    }
-
-    /// <summary>
-    /// HighestOccurrenceMapping maps the GPT-2 vocabulary Id to highest occurrence value came from dict.txt file
-    /// </summary>
-    internal sealed class HighestOccurrenceMapping
-    {
-        public const int NumSpecialSymbols = 4;
-
-        public string? PadWord { get; }
-        public string? EosWord { get; }
-        public string? UnkWord { get; }
-        public string? BosWord { get; }
-
-        public int PadIndex { get; }
-        public int EosIndex { get; }
-        public int UnkIndex { get; }
-        public int BosIndex { get; }
-
-        public string? MaskWord { get; private set; }
-        public int MaskIndex { get; private set; }
-
-        private readonly List<(int Id, int OccurrenceScore)> _symbols;
-        private readonly Dictionary<int, int> _idToIndex;
-        private readonly Dictionary<string, int> _stringSymbolToIndexMapping;
-
-        /// <exception cref="ArgumentNullException">Any of `pad`, `eos`, `unk` and `bos` is `null`.</exception>
-        public HighestOccurrenceMapping(string pad = "<pad>", string eos = "</s>", string unk = "<unk>", string bos = "<s>", string[]? extraSpecialSymbols = null)
-        {
-            _idToIndex = new Dictionary<int, int>();
-            _symbols = new List<(int, int)>();
-            _stringSymbolToIndexMapping = new Dictionary<string, int>();
-
-            BosWord = bos;
-            PadWord = pad;
-            EosWord = eos;
-            UnkWord = unk;
-            BosIndex = ReserveStringSymbolSlot(bos);
-            PadIndex = ReserveStringSymbolSlot(pad);
-            EosIndex = ReserveStringSymbolSlot(eos);
-            UnkIndex = ReserveStringSymbolSlot(unk);
-
-            if (extraSpecialSymbols is not null)
-            {
-                foreach (var symbol in extraSpecialSymbols)
-                {
-                    ReserveStringSymbolSlot(symbol);
-                }
-            }
-        }
-
-        public int IdToOccurrenceRank(int id)
-        {
-            if ((uint)id <= NumSpecialSymbols)
-                return id;
-
-            return _idToIndex.TryGetValue(id, out int rank) ? rank : UnkIndex;
-        }
-
-        public int IdToOccurrenceValue(int id)
-        {
-            if ((uint)id <= NumSpecialSymbols)
-                return 0;
-
-            if (_idToIndex.TryGetValue(id, out int rank))
-            {
-                Debug.Assert(rank < _symbols.Count);
-                return _symbols[rank].OccurrenceScore;
-            }
-
-            return 0;
-        }
-
-        public int ConvertOccurrenceRankToId(int rank)
-        {
-            if ((uint)rank >= _symbols.Count)
-            {
-                return UnkIndex;
-            }
-
-            return _symbols[rank].Id;
-        }
-
-        private int ReserveStringSymbolSlot(string symbol, int defaultOccurrence = -1)
-        {
-            if (symbol is null)
-            {
-                throw new ArgumentNullException(nameof(symbol), $"argument {nameof(symbol)} should not be null.");
-            }
-
-            if (!_stringSymbolToIndexMapping.TryGetValue(symbol, out int idx))
-            {
-                idx = _symbols.Count;
-                _symbols.Add((-1, defaultOccurrence));
-                _stringSymbolToIndexMapping[symbol] = idx;
-            }
-
-            return idx;
-        }
-
-        public int AddSymbol(int id, int highOccurrenceScore)
-        {
-            if (!_idToIndex.TryGetValue(id, out int idx))
-            {
-                idx = _symbols.Count;
-                _symbols.Add((id, highOccurrenceScore));
-                _idToIndex[id] = idx;
-            }
-
-            return idx;
-        }
-
-        public int AddMaskSymbol(string mask = "<mask>")
-        {
-            MaskWord = mask;
-            MaskIndex = ReserveStringSymbolSlot(mask, 1);
-            return MaskIndex;
-        }
-
-        /// <exception cref="ArgumentOutOfRangeException">`idx` is negative.</exception>
-        public int this[int idx]
-        {
-            get
-            {
-                if (idx < 0)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(idx), $"Index should be non-negative, got {idx}.");
-                }
-
-                return idx < _symbols.Count ? _symbols[idx].Id : UnkIndex;
-            }
-        }
-
-        public int Count => _symbols.Count;
-
-        public bool Equals(HighestOccurrenceMapping other) => _idToIndex.SequenceEqual(other._idToIndex);
-
-        public bool Contains(string symbol) => symbol != null && _stringSymbolToIndexMapping.ContainsKey(symbol);
-
-        public bool Contains(int id) => _idToIndex.ContainsKey(id);
-
-        /// <exception cref="ArgumentNullException">`symbol` is `null`.</exception>
-        public int IndexOf(int id) => _idToIndex.ContainsKey(id) ? _idToIndex[id] : UnkIndex;
-
-        /// <summary>
-        /// Loads the mapping from a text file with the format:
-        ///     13 850314647
-        ///     262 800385005
-        ///     11 800251374
-        ///     284 432911125
-        ///     ...
-        /// </summary>
-        public static HighestOccurrenceMapping Load(Stream stream)
-        {
-            var mapping = new HighestOccurrenceMapping();
-            mapping.AddFromStream(stream);
-            return mapping;
-        }
-
-        /// <summary>
-        /// Loads a pre-existing vocabulary from a text stream and adds its symbols to this instance.
-        /// </summary>
-        public void AddFromStream(Stream stream)
-        {
-            Debug.Assert(stream is not null);
-            using StreamReader reader = new StreamReader(stream);
-
-            while (reader.Peek() >= 0)
-            {
-                string? line = reader.ReadLine();
-                if (line is null)
-                {
-                    continue;
-                }
-
-                var splitLine = line.Trim().Split(' ');
-                if (splitLine.Length != 2)
-                {
-                    throw new ArgumentException("Incorrect vocabulary format, expected \"<token> <cnt>\"");
-                }
-
-                if (!int.TryParse(splitLine[1], out int occurrenceScore))
-                {
-                    throw new ArgumentException($"Cannot parse the line: '{line}'.");
-                }
-
-                if (!int.TryParse(splitLine[0], out var id))
-                {
-                    ReserveStringSymbolSlot(splitLine[0], occurrenceScore);
-                }
-                else
-                {
-                    AddSymbol(id, occurrenceScore);
-                }
             }
         }
     }
